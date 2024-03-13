@@ -68,3 +68,5 @@ def display_collocations():
             # Step 7: Display the strongest collocations to the user
             st.write("Najsilniejsze kolokacje:")
             st.json(top_collocations)
+
+display_collocations()
