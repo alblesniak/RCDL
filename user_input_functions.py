@@ -72,7 +72,18 @@ def get_part_of_speech():
     """Get user-selected part of speech filter."""
     pos_mapping = {
         'Przymiotniki': 'ADJ',
-        # Add other parts of speech as needed
+        'Rzeczowniki': 'NOUN',
+        'Czasowniki': 'VERB',
+        'Przyimki': 'ADP',
+        'Przysłówki': 'ADV',
+        'Interpunkcja': 'PUNCT',
+        'Spójniki': 'CCONJ',
+        'Cząstki': 'PART',
+        'Zaimki': 'PRON',
+        'Spójniki podrzędne': 'SCONJ',
+        'Liczbniki': 'NUM',
+        'Czasowniki pomocnicze': 'AUX',
+        'Wykrzykniki': 'INTJ'
     }
     selected_pos_label = st.sidebar.selectbox(
         'Ogranicz do części mowy', [''] + list(pos_mapping.keys()))

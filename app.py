@@ -55,12 +55,16 @@ def display_collocations():
                 start_time_log_likelihood = time.time()
                 status.update(label=f"Obliczanie log-likelihood. Analiza może potrwać od kilku do kilkunastu minut", expanded=True, state="running")
                 total_tokens = len(filtered_df)
-                log_likelihood_scores = compute_log_likelihood_scores_batch_partitioned(collocations_result, total_tokens)
+                log_likelihood_scores = compute_log_likelihood_scores_batch_partitioned(collocations_result, total_tokens, search_type)
                 time_for_log_likelihood = time.time() - start_time_log_likelihood
                 logger.info(f"Obliczanie log-likelihood zakończone. Czas wykonania: {time_for_log_likelihood:.2f}s.")
                 
                 # Step 6: Determine the strongest collocations based on their log-likelihood scores
-                top_collocations = sorted(log_likelihood_scores.items(), key=lambda item: item[1], reverse=True)[:n]
+                top_collocations = sorted(
+                    [(collocation, score, doc_ids) for collocation, (score, doc_ids) in log_likelihood_scores.items()],
+                    key=lambda item: item[1],  # Assuming item[1] is the score
+                    reverse=True
+                )[:n]
                 
                 elapsed_time = time.time() - start_time
                 status.update(label=f"Zakończenie analizy. Całkowity czas wykonania operacji: {elapsed_time:.2f}s.", state="complete", expanded=False)

@@ -90,18 +90,26 @@ class ResourceManager:
 
         for name, url in {**datasets_urls, **private_datasets_urls}.items():
             file_path = f"data/{name}"
-            attr_name = name.rsplit('.', 1)[0]  # Usuwa rozszerzenie pliku z nazwy, aby uzyskać nazwę atrybutu
+            attr_name = name.rsplit('.', 1)[0]  # Usuwanie rozszerzenia pliku
             if self.download_file(url, file_path, private_repo=name in private_datasets_urls):
-                if name.endswith('.pkl'):
-                    with open(file_path, 'rb') as f:
-                        setattr(self, attr_name, pickle.load(f))
-                elif name.endswith('.npz'):
-                    setattr(self, attr_name, scipy.sparse.load_npz(file_path))
-                elif name.endswith('.parquet'):
-                    if "tokens_data" in name:
-                        self.tokens_data = self.load_parquet(file_path)
+                try:
+                    if name.endswith('.pkl'):
+                        with open(file_path, 'rb') as f:
+                            setattr(self, attr_name, pickle.load(f))
+                    elif name.endswith('.npz'):
+                        setattr(self, attr_name, scipy.sparse.load_npz(file_path))
+                    elif name.endswith('.parquet'):
+                        if "tokens_data" in name:
+                            self.tokens_data = self.load_parquet(file_path)
+                        else:
+                            setattr(self, attr_name, pd.read_parquet(file_path))
+                    # Dodatkowe sprawdzenie załadowanych danych
+                    if getattr(self, attr_name) is None:
+                        logger.error(f"Dane {attr_name} nie zostały załadowane poprawnie.")
                     else:
-                        setattr(self, attr_name, pd.read_parquet(file_path))
+                        logger.info(f"Dane {attr_name} zostały załadowane poprawnie.")
+                except Exception as e:
+                    logger.error(f"Error loading data {attr_name}: {e}")
 
             
     def load_parquet(self, file_path):
