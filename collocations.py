@@ -148,7 +148,8 @@ def compute_log_likelihood_scores_batch_partitioned(collocations, total_tokens, 
     column_to_idx = resource_manager.lemmas_to_idx if search_type == 'lemmas' else resource_manager.tokens_to_idx
 
     lemmas = np.array(list(collocations.keys()))
-    counts = np.array(list(collocations.values()))
+    counts = np.array([count for count, doc_ids in collocations.values()])
+
 
     num_batches = int(np.ceil(len(lemmas) / batch_size))
     

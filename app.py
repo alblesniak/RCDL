@@ -59,18 +59,25 @@ def display_collocations():
                 time_for_log_likelihood = time.time() - start_time_log_likelihood
                 logger.info(f"Obliczanie log-likelihood zakończone. Czas wykonania: {time_for_log_likelihood:.2f}s.")
                 
-                # Step 6: Determine the strongest collocations based on their log-likelihood scores
-                top_collocations = sorted(
-                    [(collocation, score, doc_ids) for collocation, (score, doc_ids) in log_likelihood_scores.items()],
-                    key=lambda item: item[1],  # Assuming item[1] is the score
-                    reverse=True
-                )[:n]
-                
-                elapsed_time = time.time() - start_time
-                status.update(label=f"Zakończenie analizy. Całkowity czas wykonania operacji: {elapsed_time:.2f}s.", state="complete", expanded=False)
 
-            # Step 7: Display the strongest collocations to the user
+                # Step 6: Prepare the final data structure combining log-likelihood scores with doc_ids
+                top_collocations_with_details = []
+                for collocation, (count, doc_ids) in collocations_result.items():
+                    score = log_likelihood_scores.get(collocation, 0)  # Get log-likelihood score, defaulting to 0 if not found
+                    top_collocations_with_details.append((collocation, score, doc_ids))
+                
+                # Sort the combined data based on log-likelihood score
+                top_collocations_with_details.sort(key=lambda item: item[1], reverse=True)  # Assuming item[1] is the score
+    
+            # Step 7: Display the strongest collocations to the user along with doc_ids
             st.write("Najsilniejsze kolokacje:")
-            st.json(top_collocations)
+            # for collocation, score, doc_ids in top_collocations_with_details[:n]:
+            #     st.write(f"Kolokacja: {collocation}, Wynik log-likelihood: {score}, ID dokumentów: {doc_ids}")
+
+            # Alternatively, use st.json for a structured display if preferred
+            st.json(top_collocations_with_details[:n])
+            elapsed_time = time.time() - start_time
+            status.update(label=f"Zakończenie analizy. Całkowity czas wykonania operacji: {elapsed_time:.2f}s.", state="complete", expanded=False)
+
 
 display_collocations()
