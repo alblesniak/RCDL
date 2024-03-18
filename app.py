@@ -6,7 +6,7 @@ import streamlit as st
 
 from collocations import (compute_log_likelihood_scores_batch_partitioned,
                           filter_tokens_by_doc_ids, find_collocations,
-                          find_relevant_doc_ids)
+                          find_relevant_doc_ids,find_detailed_collocation_occurrences)
 from user_input_functions import get_user_input_collocations
 
 # Konfiguracja logowania
@@ -49,7 +49,7 @@ def display_collocations():
                                                         is_stop, is_punct, selected_pos)
                 time_for_collocations = time.time() - start_time_collocations
                 # Update the status with the number of collocations found and the execution time
-                status.update(label=f"Znaleziono kolokacji: {len(collocations_result)}, czas wykonania: {time_for_collocations:.2f}s.", expanded=True, state="complete")
+                logger.info(f"Znaleziono kolokacji: {len(collocations_result)}, czas wykonania: {time_for_collocations:.2f}s.")
                 
                 # Step 5: Compute log-likelihood scores for the collocations
                 start_time_log_likelihood = time.time()
@@ -66,18 +66,30 @@ def display_collocations():
                     score = log_likelihood_scores.get(collocation, 0)  # Get log-likelihood score, defaulting to 0 if not found
                     top_collocations_with_details.append((collocation, score, doc_ids))
                 
-                # Sort the combined data based on log-likelihood score
-                top_collocations_with_details.sort(key=lambda item: item[1], reverse=True)  # Assuming item[1] is the score
-    
-            # Step 7: Display the strongest collocations to the user along with doc_ids
-            st.write("Najsilniejsze kolokacje:")
-            # for collocation, score, doc_ids in top_collocations_with_details[:n]:
-            #     st.write(f"Kolokacja: {collocation}, Wynik log-likelihood: {score}, ID dokumentów: {doc_ids}")
+                # Sort the combined data based on log-likelihood score and trim to `n` elements
+                top_collocations_with_details.sort(key=lambda item: item[1], reverse=True)
+                top_collocations_with_details = top_collocations_with_details[:n]
 
-            # Alternatively, use st.json for a structured display if preferred
-            st.json(top_collocations_with_details[:n])
+
+                # Step 7: Display the strongest collocations to the user along with detailed occurrences
+                status.update(label=f"Wyszukiwanie przykładów dla poszczególnych kolokacji", expanded=True, state="running")
+                detailed_occurrences = find_detailed_collocation_occurrences(
+                    top_collocations_with_details=top_collocations_with_details,
+                    tokens_df=filtered_df,
+                    query_lemma=query_lemma,  # Upewnij się, że jest to poprawnie przekazane
+                    search_type=search_type,
+                    left_context_length=left_context_length,
+                    right_context_length=right_context_length,
+                    is_stop=is_stop,
+                    is_punct=is_punct,
+                    selected_pos=selected_pos  # Upewnij się, że ten argument jest poprawnie przekazany
+                )
+            
+            # Wyświetlenie wyników
+            st.write("Najsilniejsze kolokacje z identyfikatorami wystąpień:")
+            st.json(detailed_occurrences)
+
             elapsed_time = time.time() - start_time
             status.update(label=f"Zakończenie analizy. Całkowity czas wykonania operacji: {elapsed_time:.2f}s.", state="complete", expanded=False)
-
 
 display_collocations()

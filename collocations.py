@@ -97,7 +97,7 @@ def find_collocations(tokens_df, query_lemma, search_type, left_context_length, 
         return {}
 
     tokens_df = tokens_df.set_index(['doc_id', 'id'])
-    for doc_id, idx in tokens_df[tokens_df[search_column] == query_lemma].index:
+    for doc_id, idx in stqdm(tokens_df[tokens_df[search_column] == query_lemma].index, desc="Trwa przetwrzanie..."):
         context_indices = get_context_indices(doc_id, idx, tokens_df, left_context_length, right_context_length)
         for context_idx in context_indices:
             if context_idx != idx and (doc_id, context_idx) in tokens_df.index:
@@ -153,7 +153,7 @@ def compute_log_likelihood_scores_batch_partitioned(collocations, total_tokens, 
 
     num_batches = int(np.ceil(len(lemmas) / batch_size))
     
-    for i in stqdm(range(num_batches), desc="Processing..."):
+    for i in stqdm(range(num_batches), desc="Trwa przetwrzanie..."):
         start_index = i * batch_size
         end_index = min((i + 1) * batch_size, len(lemmas))
         lemmas_batch = lemmas[start_index:end_index]
@@ -175,3 +175,44 @@ def compute_log_likelihood_scores_batch_partitioned(collocations, total_tokens, 
             scores_dict[lemma] = score
 
     return scores_dict
+
+
+def find_detailed_collocation_occurrences(top_collocations_with_details, tokens_df, query_lemma, search_type, left_context_length, right_context_length, is_stop, is_punct, selected_pos):
+    detailed_collocations_occurrences = []
+
+    # Ustalenie kolumny wyszukiwania w zależności od typu wyszukiwania
+    search_column = 'lemma' if search_type == 'lemmas' else 'token_text'
+    
+    # Iteracja przez listę kolokacji
+    for collocation, _, doc_ids in stqdm(top_collocations_with_details, desc="Trwa przetwrzanie..."):
+        collocation_examples = {}
+
+        for doc_id in doc_ids:
+            doc_tokens = tokens_df[tokens_df['doc_id'] == doc_id].reset_index()
+
+            # Wyszukiwanie indeksów dla słowa węzłowego i kolokatu
+            node_indices = doc_tokens[doc_tokens[search_column] == query_lemma].index
+            collocation_indices = doc_tokens[doc_tokens[search_column] == collocation].index
+
+            for node_idx in node_indices:
+                # Dla każdego wystąpienia słowa węzłowego szukamy wystąpień kolokatu w określonym kontekście
+                examples = []
+
+                for collocation_idx in collocation_indices:
+                    if abs(node_idx - collocation_idx) <= max(left_context_length, right_context_length):
+                        # Sprawdzenie, czy wystąpienie kolokatu spełnia kryteria
+                        context_row = doc_tokens.loc[collocation_idx]
+                        if filter_conditions(context_row, is_stop, is_punct, selected_pos):
+                            examples.append((doc_tokens.at[node_idx, 'id'], doc_tokens.at[collocation_idx, 'id']))
+                
+                if examples:
+                    # Jeśli znaleziono przykłady spełniające kryteria, dodajemy do słownika
+                    if doc_id not in collocation_examples:
+                        collocation_examples[doc_id] = examples
+                    else:
+                        collocation_examples[doc_id].extend(examples)
+        
+        if collocation_examples:
+            detailed_collocations_occurrences.append([query_lemma, collocation, collocation_examples])
+
+    return detailed_collocations_occurrences
