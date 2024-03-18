@@ -216,3 +216,29 @@ def find_detailed_collocation_occurrences(top_collocations_with_details, tokens_
             detailed_collocations_occurrences.append([query_lemma, collocation, collocation_examples])
 
     return detailed_collocations_occurrences
+
+
+def get_context_for_collocations(detailed_collocations_occurrences, tokens_df, left_context_length=5, right_context_length=5):
+    context_results = []
+    
+    for item in stqdm(detailed_collocations_occurrences, desc="Trwa przetwarzanie"):
+        query_lemma, collocation, doc_ids_dict = item
+        score = item[1]  # Dodano linię
+        for doc_id, ids_pairs in doc_ids_dict.items():
+            for pair in ids_pairs:
+                node_id, collocate_id = pair
+                context_start = max(1, min(node_id, collocate_id) - left_context_length)
+                context_end = max(node_id, collocate_id) + right_context_length
+                context_df = tokens_df[(tokens_df['doc_id'] == doc_id) & (tokens_df['id'] >= context_start) & (tokens_df['id'] <= context_end)]
+                
+                context_str = ' '.join(context_df['token_text'].tolist())
+                
+                context_results.append({
+                    'query_lemma': query_lemma,
+                    'collocation': collocation,
+                    'score': score,  # Dodano linię
+                    'doc_id': doc_id,
+                    'context': context_str
+                })
+
+    return context_results
