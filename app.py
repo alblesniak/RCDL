@@ -79,13 +79,13 @@ def display_collocations():
             st.write("Najsilniejsze kolokacje z kontekstem:")
 
             # Przygotowanie danych do grupowania
-            context_occurrences.sort(key=itemgetter('collocation'))
+            context_occurrences.sort(key=itemgetter('score'), reverse=True)
 
             for key, group in groupby(context_occurrences, key=itemgetter('collocation')):
                 # Zbieranie grupy do listy, aby móc wielokrotnie jej używać
                 group_list = list(group)
-                score = group_list[0]['score']  # Zakładamy, że score jest taki sam dla wszystkich kontekstów danej kolokacji
-                expander_title = f"<b style='font-size: 18px;'>{key} - {score}</b>"  # Modyfikacja tytułu zgodnie z wymaganiami
+                score = group_list[0]['score']  # Upewniamy się, że score jest prawidłowo przypisany
+                expander_title = f"{key} - {score}"
                 with st.expander(expander_title, expanded=False):
                     for context_data in group_list:
                         st.write(f"{context_data['context']} (Document ID: {context_data['doc_id']})")

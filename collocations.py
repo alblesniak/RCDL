@@ -180,65 +180,71 @@ def compute_log_likelihood_scores_batch_partitioned(collocations, total_tokens, 
 def find_detailed_collocation_occurrences(top_collocations_with_details, tokens_df, query_lemma, search_type, left_context_length, right_context_length, is_stop, is_punct, selected_pos):
     detailed_collocations_occurrences = []
 
-    # Ustalenie kolumny wyszukiwania w zależności od typu wyszukiwania
+    # Przekształcenie tokens_df do słownika dla szybszego dostępu
+    tokens_dict = {doc_id: df_group.to_dict(orient='records') for doc_id, df_group in tokens_df.groupby('doc_id')}
+
     search_column = 'lemma' if search_type == 'lemmas' else 'token_text'
     
-    # Iteracja przez listę kolokacji
-    for collocation, _, doc_ids in stqdm(top_collocations_with_details, desc="Trwa przetwrzanie..."):
+    for collocation, score, doc_ids in top_collocations_with_details:
         collocation_examples = {}
-
         for doc_id in doc_ids:
-            doc_tokens = tokens_df[tokens_df['doc_id'] == doc_id].reset_index()
+            if doc_id not in tokens_dict:
+                continue
+            doc_tokens = tokens_dict[doc_id]
 
-            # Wyszukiwanie indeksów dla słowa węzłowego i kolokatu
-            node_indices = doc_tokens[doc_tokens[search_column] == query_lemma].index
-            collocation_indices = doc_tokens[doc_tokens[search_column] == collocation].index
+            node_indices = [i for i, token in enumerate(doc_tokens) if token[search_column] == query_lemma]
+            collocation_indices = [i for i, token in enumerate(doc_tokens) if token[search_column] == collocation]
 
             for node_idx in node_indices:
-                # Dla każdego wystąpienia słowa węzłowego szukamy wystąpień kolokatu w określonym kontekście
                 examples = []
-
                 for collocation_idx in collocation_indices:
                     if abs(node_idx - collocation_idx) <= max(left_context_length, right_context_length):
-                        # Sprawdzenie, czy wystąpienie kolokatu spełnia kryteria
-                        context_row = doc_tokens.loc[collocation_idx]
+                        context_row = doc_tokens[collocation_idx]
                         if filter_conditions(context_row, is_stop, is_punct, selected_pos):
-                            examples.append((doc_tokens.at[node_idx, 'id'], doc_tokens.at[collocation_idx, 'id']))
-                
+                            examples.append((doc_tokens[node_idx]['id'], context_row['id']))
                 if examples:
-                    # Jeśli znaleziono przykłady spełniające kryteria, dodajemy do słownika
-                    if doc_id not in collocation_examples:
-                        collocation_examples[doc_id] = examples
-                    else:
-                        collocation_examples[doc_id].extend(examples)
-        
+                    collocation_examples.setdefault(doc_id, []).extend(examples)
+
         if collocation_examples:
-            detailed_collocations_occurrences.append([query_lemma, collocation, collocation_examples])
+            # Dodanie wyniku score do listy
+            detailed_collocations_occurrences.append([query_lemma, collocation, score, collocation_examples])
 
     return detailed_collocations_occurrences
 
 
+
+
 def get_context_for_collocations(detailed_collocations_occurrences, tokens_df, left_context_length=5, right_context_length=5):
+    context_cache = {}
     context_results = []
-    
-    for item in stqdm(detailed_collocations_occurrences, desc="Trwa przetwarzanie"):
-        query_lemma, collocation, doc_ids_dict = item
-        score = item[1]  # Dodano linię
+
+    tokens_dict = {doc_id: df_group.to_dict(orient='records') for doc_id, df_group in tokens_df.groupby('doc_id')}
+
+    for item in detailed_collocations_occurrences:
+        query_lemma, collocation, score, doc_ids_dict = item  # Zmienione rozpakowanie zmiennych, dodano score
         for doc_id, ids_pairs in doc_ids_dict.items():
+            if doc_id not in tokens_dict:
+                continue
             for pair in ids_pairs:
-                node_id, collocate_id = pair
-                context_start = max(1, min(node_id, collocate_id) - left_context_length)
-                context_end = max(node_id, collocate_id) + right_context_length
-                context_df = tokens_df[(tokens_df['doc_id'] == doc_id) & (tokens_df['id'] >= context_start) & (tokens_df['id'] <= context_end)]
-                
-                context_str = ' '.join(context_df['token_text'].tolist())
-                
+                cache_key = (doc_id,) + pair
+                if cache_key in context_cache:
+                    context_str = context_cache[cache_key]
+                else:
+                    node_id, collocate_id = pair
+                    context_start = max(1, min(node_id, collocate_id) - left_context_length)
+                    context_end = max(node_id, collocate_id) + right_context_length
+                    context_tokens = [token['token_text'] for token in tokens_dict[doc_id] if context_start <= token['id'] <= context_end]
+                    context_str = ' '.join(context_tokens)
+                    context_cache[cache_key] = context_str
+
                 context_results.append({
                     'query_lemma': query_lemma,
                     'collocation': collocation,
-                    'score': score,  # Dodano linię
+                    'score': score,  # Używanie zmiennej score
                     'doc_id': doc_id,
                     'context': context_str
                 })
 
     return context_results
+
+
