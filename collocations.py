@@ -340,12 +340,9 @@ def generate_markdown_report(user_inputs, context_occurrences):
         # Uwzględnij kontekst i identyfikator dokumentu w formacie odpowiednim do Markdown
         formatted_context = format_context(occurrence['context'])
         doc_id = occurrence['doc_id']
-        # Popraw formatowanie słów węzłowych i kolokatów
-        formatted_context = formatted_context.replace('***', '**').replace('**', '*').replace('*', '**', 1).replace('*', '**', 1)
-        markdown_content += f"- {formatted_context} `{doc_id}`\n"
+        markdown_content += f"- {formatted_context}\n"  # Usuń wyświetlanie doc_id tutaj
 
     return markdown_content
-
 
 
 
@@ -353,16 +350,13 @@ def format_context(context_list):
     formatted = []
     for i, item in enumerate(context_list):
         if isinstance(item, tuple):  # Token jest częścią kolokacji
-            text, is_query = item[0], item[1] is not None
-            if is_query:
-                text = f"**{text}**"
-            else:
-                text = f"*{text}*"
+            text = f" **{item[0]}**" if 'query_lemma' in item else f" *{item[0]}*"  # Dodaje spację przed gwiazdką
             formatted.append(text)
         elif isinstance(item, str):
             formatted.append(item)
         if i < len(context_list) - 1:  # Dodaj spację, chyba że to ostatni element
             next_item = context_list[i + 1]
-            if isinstance(item, str) and not item.endswith('*') and isinstance(next_item, str) and not next_item.startswith('*'):
+            if isinstance(item, str) and item not in {'.', ',', '!', '?', ';', ':', ')', ']', '}', '”', '—', '–', '…', '-'} and \
+               isinstance(next_item, str) and next_item not in {'(', '[', '{', '„'}:
                 formatted.append(" ")
     return ''.join(formatted)
