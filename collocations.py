@@ -1,3 +1,4 @@
+import re
 import pandas as pd
 import logging
 import math
@@ -185,7 +186,8 @@ def find_detailed_collocation_occurrences(top_collocations_with_details, tokens_
 
     search_column = 'lemma' if search_type == 'lemmas' else 'token_text'
     
-    for collocation, score, doc_ids in top_collocations_with_details:
+    # Dodanie stqdm dla wizualizacji postępu
+    for collocation, score, doc_ids in stqdm(top_collocations_with_details, desc="Wyszukiwanie przykładów dla poszczególnych kolokacji"):
         collocation_examples = {}
         for doc_id in doc_ids:
             if doc_id not in tokens_dict:
@@ -211,40 +213,156 @@ def find_detailed_collocation_occurrences(top_collocations_with_details, tokens_
 
     return detailed_collocations_occurrences
 
+def format_annotated_context(context_tokens):
+    """Formats punctuation in the context tokens list."""
+    formatted_result = []
+    n = len(context_tokens)
+    i = 0
+
+    while i < n:
+        token = context_tokens[i]
+        if isinstance(token, tuple):  # Check if the token is annotated (tuple format used for target and collocate)
+            formatted_result.append(token)
+        else:
+            if i + 1 < n:
+                next_token = context_tokens[i + 1]
+                if next_token in {'.', ',', '!', '?', ';', ':', ')', ']', '}', '”', '—', '–', '…', '-'}:
+                    # If next token is punctuation, merge without space
+                    token += next_token
+                    i += 1  # Skip the next token as it's already included
+                elif next_token in {'(', '[', '{', '„'}:
+                    # If next token is opening punctuation, add it before with a space
+                    formatted_result.append(token)
+                    formatted_result.append(next_token)
+                    i += 1  # Skip the next token as it's already included
+                    continue
+            formatted_result.append(token)
+        i += 1
+
+    return formatted_result
 
 
 
-def get_context_for_collocations(detailed_collocations_occurrences, tokens_df, left_context_length=5, right_context_length=5):
-    context_cache = {}
+def get_context_for_collocations(detailed_collocations_occurrences, tokens_df):
     context_results = []
-
     tokens_dict = {doc_id: df_group.to_dict(orient='records') for doc_id, df_group in tokens_df.groupby('doc_id')}
 
     for item in detailed_collocations_occurrences:
-        query_lemma, collocation, score, doc_ids_dict = item  # Zmienione rozpakowanie zmiennych, dodano score
+        query_lemma, collocation, score, doc_ids_dict = item
         for doc_id, ids_pairs in doc_ids_dict.items():
             if doc_id not in tokens_dict:
                 continue
             for pair in ids_pairs:
-                cache_key = (doc_id,) + pair
-                if cache_key in context_cache:
-                    context_str = context_cache[cache_key]
-                else:
-                    node_id, collocate_id = pair
-                    context_start = max(1, min(node_id, collocate_id) - left_context_length)
-                    context_end = max(node_id, collocate_id) + right_context_length
-                    context_tokens = [token['token_text'] for token in tokens_dict[doc_id] if context_start <= token['id'] <= context_end]
-                    context_str = ' '.join(context_tokens)
-                    context_cache[cache_key] = context_str
+                node_id, collocate_id = pair
+                doc_tokens = tokens_dict[doc_id]
 
+                # Find the start and end indices for the node and collocate within the sentence
+                node_idx = next((i for i, t in enumerate(doc_tokens) if t['id'] == node_id), None)
+                collocate_idx = next((i for i, t in enumerate(doc_tokens) if t['id'] == collocate_id), None)
+
+                if node_idx is None or collocate_idx is None:
+                    continue
+
+                # Determine the start and end of the sentence for the node
+                start_idx_node = node_idx
+                while start_idx_node > 0 and not doc_tokens[start_idx_node]['sentence_start']:
+                    start_idx_node -= 1
+
+                end_idx_node = node_idx
+                while end_idx_node < len(doc_tokens) - 1 and not doc_tokens[end_idx_node + 1]['sentence_start']:
+                    end_idx_node += 1
+
+                # Determine the start and end of the sentence for the collocate
+                start_idx_collocate = collocate_idx
+                while start_idx_collocate > 0 and not doc_tokens[start_idx_collocate]['sentence_start']:
+                    start_idx_collocate -= 1
+
+                end_idx_collocate = collocate_idx
+                while end_idx_collocate < len(doc_tokens) - 1 and not doc_tokens[end_idx_collocate + 1]['sentence_start']:
+                    end_idx_collocate += 1
+
+                # Establish the start and end for the context to display
+                context_start = min(start_idx_node, start_idx_collocate)
+                context_end = max(end_idx_node, end_idx_collocate)
+
+                context_tokens = doc_tokens[context_start:context_end + 1]
+                annotated_context = format_annotated_context([
+                    (token['token_text'], None, "#afa") if token['id'] == node_id 
+                    else (token['token_text'], None, "#faa") if token['id'] == collocate_id 
+                    else token['token_text'] 
+                    for token in context_tokens
+                ])
+
+                annotated_context.append(f"`{doc_id}`")  # Add doc_id at the end
                 context_results.append({
                     'query_lemma': query_lemma,
                     'collocation': collocation,
-                    'score': score,  # Używanie zmiennej score
+                    'score': score,
                     'doc_id': doc_id,
-                    'context': context_str
+                    'context': annotated_context
                 })
 
     return context_results
 
 
+def generate_markdown_report(user_inputs, context_occurrences):
+    """
+    Generuje raport w formacie Markdown na podstawie wyników wyszukiwania kolokacji.
+
+    Args:
+        user_inputs (tuple): Wszystkie parametry wejściowe wybrane przez użytkownika.
+        context_occurrences (list of dicts): Szczegółowe wyniki kolokacji do raportowania.
+
+    Returns:
+        str: Sformatowana zawartość Markdown.
+    """
+    # Rozpoczynamy budowanie raportu Markdown
+    markdown_content = "# Raport Wyszukiwania Kolokacji\n\n"
+    markdown_content += "## Parametry Wyszukiwania\n"
+    markdown_content += f"- **Wybrane Czasopisma**: {', '.join(user_inputs[0])}\n"
+    markdown_content += f"- **Zakres Lat**: od {user_inputs[1][0]} do {user_inputs[1][1]}\n"
+    markdown_content += f"- **Szukane Lemma**: **{user_inputs[2]}**\n"
+    markdown_content += f"- **Typ Wyszukiwania**: {user_inputs[3]}\n"
+    markdown_content += f"- **Długość Kontekstu**: Lewy {user_inputs[4]}, Prawy {user_inputs[5]}\n"
+    markdown_content += f"- **Liczba Wyników**: {user_inputs[6]}\n"
+    markdown_content += f"- **Uwzględnij Słowa Funkcyjne**: {'Tak' if user_inputs[7] else 'Nie'}\n"
+    markdown_content += f"- **Uwzględnij Interpunkcję**: {'Tak' if user_inputs[8] else 'Nie'}\n"
+    markdown_content += f"- **Wybrana Część Mowy**: {user_inputs[9] or 'Dowolna'}\n\n"
+
+    markdown_content += "## Wyniki\n\n"
+    last_collocation = None
+    for occurrence in sorted(context_occurrences, key=lambda x: (x['collocation'], -x['score'])):
+        if last_collocation != occurrence['collocation']:
+            if last_collocation is not None:
+                markdown_content += '\n'
+            markdown_content += f"### Kolokacja: **{occurrence['query_lemma']}** z *{occurrence['collocation']}* (Wynik: {occurrence['score']})\n"
+            last_collocation = occurrence['collocation']
+        # Uwzględnij kontekst i identyfikator dokumentu w formacie odpowiednim do Markdown
+        formatted_context = format_context(occurrence['context'])
+        doc_id = occurrence['doc_id']
+        # Popraw formatowanie słów węzłowych i kolokatów
+        formatted_context = formatted_context.replace('***', '**').replace('**', '*').replace('*', '**', 1).replace('*', '**', 1)
+        markdown_content += f"- {formatted_context} `{doc_id}`\n"
+
+    return markdown_content
+
+
+
+
+def format_context(context_list):
+    formatted = []
+    for i, item in enumerate(context_list):
+        if isinstance(item, tuple):  # Token jest częścią kolokacji
+            text, is_query = item[0], item[1] is not None
+            if is_query:
+                text = f"**{text}**"
+            else:
+                text = f"*{text}*"
+            formatted.append(text)
+        elif isinstance(item, str):
+            formatted.append(item)
+        if i < len(context_list) - 1:  # Dodaj spację, chyba że to ostatni element
+            next_item = context_list[i + 1]
+            if isinstance(item, str) and not item.endswith('*') and isinstance(next_item, str) and not next_item.startswith('*'):
+                formatted.append(" ")
+    return ''.join(formatted)
