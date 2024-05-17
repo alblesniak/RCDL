@@ -106,3 +106,32 @@ def get_user_input_collocations():
     n, is_stop, is_punct = get_collocation_params()
     selected_pos = get_part_of_speech()
     return selected_journals, year_range, query_lemma, search_type, left_context_length, right_context_length, n, is_stop, is_punct, selected_pos
+
+
+def get_user_input_concordances():
+    """Collect all user inputs related to concordances."""
+    issue_info_dict = {
+        'Przewodnik Katolicki': {'min_year': 2008, 'max_year': 2023},
+        'Niedziela': {'min_year': 2010, 'max_year': 2023},
+        'Gość Niedzielny': {'min_year': 2005, 'max_year': 2023},
+        'Chrześcijanin': {'min_year': 1989, 'max_year': 2022}
+    }
+    selected_journals, year_range = get_selected_journal_and_year_range(issue_info_dict)
+    query_lemma = get_query_lemma()
+    search_type = get_search_type()
+    left_context_length, right_context_length = get_context_length()
+    sort_by = get_sort_by()
+    sample_percentage = get_sample_percentage()
+    
+    return  selected_journals, year_range, query_lemma, search_type, left_context_length, right_context_length, sort_by, sample_percentage
+
+def get_sort_by():
+    """Get user-selected sorting option."""
+    sort_options = ['Prawego kontekstu', 'Lewego kontekstu', 'Segmentu węzłowego']
+    sort_by = st.sidebar.selectbox('Sortuj alfabetycznie według:', sort_options)
+    return sort_by
+
+def get_sample_percentage():
+    """Get user-selected sample percentage."""
+    sample_percentage = st.sidebar.slider('Procent próbki:', 1, 100, 100)
+    return sample_percentage

@@ -8,31 +8,17 @@ import numpy as np
 import scipy.sparse
 from tqdm import tqdm
 import psutil
-from resource_manager import ResourceManager
+from resource_manager import ResourceManager, load_resources
 from stqdm import stqdm
 
 # Konfiguracja logowania
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("collocations")
 
-# Inicjalizacja ResourceManager
+
+# Utwórz instancję resource_manager i wczytaj dane
 resource_manager = ResourceManager()
-
-def load_resources():
-    """Ładuje zasoby potrzebne do analizy kolokacji."""
-    try:
-        logger.info("Loading resources...")
-        resource_manager.load_data()
-        # Dodatkowe sprawdzenie, czy kluczowe dane zostały załadowane
-        if resource_manager.lemmas_to_idx is None or resource_manager.tokens_to_idx is None:
-            raise ValueError("Niektóre zasoby nie zostały załadowane poprawnie.")
-        logger.info('Resources loaded successfully.')
-    except Exception as e:
-        logger.error(f"Failed to load resources: {e}")
-        raise
-
-# Wywołanie funkcji ładowania zasobów przy starcie aplikacji
-load_resources()
+load_resources(resource_manager)
 
 def find_relevant_doc_ids(selected_journals, year_range):
     """Wyszukuje doc_id na podstawie selected_journals i year_range."""
@@ -224,22 +210,17 @@ def format_annotated_context(context_tokens):
         if isinstance(token, tuple):  # Check if the token is annotated (tuple format used for target and collocate)
             formatted_result.append(token)
         else:
-            if i + 1 < n:
+            formatted_result.append(token)
+            if i + 1 < n and isinstance(context_tokens[i + 1], str):
                 next_token = context_tokens[i + 1]
                 if next_token in {'.', ',', '!', '?', ';', ':', ')', ']', '}', '”', '—', '–', '…', '-'}:
-                    # If next token is punctuation, merge without space
-                    token += next_token
+                    formatted_result[-1] += next_token
                     i += 1  # Skip the next token as it's already included
-                elif next_token in {'(', '[', '{', '„'}:
-                    # If next token is opening punctuation, add it before with a space
-                    formatted_result.append(token)
-                    formatted_result.append(next_token)
-                    i += 1  # Skip the next token as it's already included
-                    continue
-            formatted_result.append(token)
         i += 1
 
     return formatted_result
+
+
 
 
 
@@ -335,28 +316,22 @@ def generate_markdown_report(user_inputs, context_occurrences):
         if last_collocation != occurrence['collocation']:
             if last_collocation is not None:
                 markdown_content += '\n'
-            markdown_content += f"### Kolokacja: **{occurrence['query_lemma']}** z *{occurrence['collocation']}* (Wynik: {occurrence['score']})\n"
+            markdown_content += f"### Kolokacja: **{occurrence['query_lemma']}** z **{occurrence['collocation']}** (Wynik: {occurrence['score']})\n"
             last_collocation = occurrence['collocation']
-        # Uwzględnij kontekst i identyfikator dokumentu w formacie odpowiednim do Markdown
+        # Uwzględnij kontekst i identyfikator dokumentu w formacie Markdown
         formatted_context = format_context(occurrence['context'])
-        doc_id = occurrence['doc_id']
-        markdown_content += f"- {formatted_context}\n"  # Usuń wyświetlanie doc_id tutaj
+        markdown_content += f"{formatted_context}\n"  # Usuń wyświetlanie doc_id tutaj
 
     return markdown_content
 
-
-
 def format_context(context_list):
+    """Formats the context for Markdown."""
     formatted = []
-    for i, item in enumerate(context_list):
-        if isinstance(item, tuple):  # Token jest częścią kolokacji
-            text = f" **{item[0]}**" if 'query_lemma' in item else f" *{item[0]}*"  # Dodaje spację przed gwiazdką
-            formatted.append(text)
-        elif isinstance(item, str):
-            formatted.append(item)
-        if i < len(context_list) - 1:  # Dodaj spację, chyba że to ostatni element
-            next_item = context_list[i + 1]
-            if isinstance(item, str) and item not in {'.', ',', '!', '?', ';', ':', ')', ']', '}', '”', '—', '–', '…', '-'} and \
-               isinstance(next_item, str) and next_item not in {'(', '[', '{', '„'}:
+    for i, token in enumerate(context_list):
+        if isinstance(token, tuple):  # Token is part of the collocation
+            formatted.append(f" {'**' if 'collocation' in token else '*'}{token[0]}{'**' if 'collocation' in token else '*'}")  # Add a space before the asterisk
+        elif isinstance(token, str):
+            formatted.append(token)
+            if i < len(context_list) - 1 and isinstance(context_list[i + 1], str) and context_list[i + 1] not in {'.', ',', '!', '?', ';', ':', ')', ']', '}', '”', '—', '–', '…', '-', '„', '('}:  # Add a space if the next token is text and not a punctuation mark or opening quote/bracket
                 formatted.append(" ")
     return ''.join(formatted)

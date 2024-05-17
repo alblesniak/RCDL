@@ -1,7 +1,7 @@
 import logging
 import os
 import pickle
-
+import sqlite3
 import dask.dataframe as dd
 import pandas as pd
 
@@ -12,8 +12,6 @@ from tqdm import tqdm
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("resource_manager")
-
-
 
 class ResourceManager:
     def __init__(self, chunksize=1024):
@@ -26,6 +24,7 @@ class ResourceManager:
         self.tokens_sparse_matrix = None
         self.idx_to_metadata = None
         self.tokens_df = None
+        self.tokens_data = None
 
     def file_exists(self, filename):
         return os.path.exists(filename)
@@ -75,13 +74,18 @@ class ResourceManager:
         logger.info("Starting to load data")
         base_url = "https://huggingface.co/datasets/alblesniak/RCDL_dataset/resolve/main/"
         datasets_urls = {
+            # Existing files
             "lemmas_to_idx.pkl": base_url + "lemmas_to_idx.pkl",
             "tokens_to_idx.pkl": base_url + "tokens_to_idx.pkl",
             "idx_to_lemmas.pkl": base_url + "idx_to_lemmas.pkl",
             "idx_to_tokens.pkl": base_url + "idx_to_tokens.pkl",
             "lemmas_sparse_matrix.npz": base_url + "lemmas_sparse_matrix.npz",
             "tokens_sparse_matrix.npz": base_url + "tokens_sparse_matrix.npz",
-            "idx_to_metadata.parquet": base_url + "idx_to_metadata.parquet"
+            "idx_to_metadata.parquet": base_url + "idx_to_metadata.parquet",
+            # New files
+            "Katolickie_per_year.csv": base_url + "Katolickie_per_year.csv",
+            "Pentekostalne_per_year.csv": base_url + "Pentekostalne_per_year.csv",
+            "keywords_data.xlsx": base_url + "keywords_data.xlsx",
         }
 
         private_datasets_urls = {
@@ -90,7 +94,7 @@ class ResourceManager:
 
         for name, url in {**datasets_urls, **private_datasets_urls}.items():
             file_path = f"data/{name}"
-            attr_name = name.rsplit('.', 1)[0]  # Usuwanie rozszerzenia pliku
+            attr_name = name.rsplit('.', 1)[0]  # Removing file extension
             if self.download_file(url, file_path, private_repo=name in private_datasets_urls):
                 try:
                     if name.endswith('.pkl'):
@@ -103,24 +107,58 @@ class ResourceManager:
                             self.tokens_data = self.load_parquet(file_path)
                         else:
                             setattr(self, attr_name, pd.read_parquet(file_path))
-                    # Dodatkowe sprawdzenie załadowanych danych
+                    elif name.endswith('.csv'):
+                        setattr(self, attr_name, pd.read_csv(file_path))
+                    elif name.endswith('.xlsx'):
+                        setattr(self, attr_name, pd.read_excel(file_path))
+                    # Additional check for loaded data
                     if getattr(self, attr_name) is None:
-                        logger.error(f"Dane {attr_name} nie zostały załadowane poprawnie.")
+                        logger.error(f"Data {attr_name} was not loaded correctly.")
                     else:
-                        logger.info(f"Dane {attr_name} zostały załadowane poprawnie.")
+                        logger.info(f"Data {attr_name} loaded successfully.")
                 except Exception as e:
                     logger.error(f"Error loading data {attr_name}: {e}")
 
-            
     def load_parquet(self, file_path):
-        # Logowanie rozpoczęcia ładowania danych
-        logger.info(f"Rozpoczynam ładowanie danych z pliku {file_path} z użyciem Dask.")
-        
+        logger.info(f"Start loading data from {file_path} using Dask.")
         try:
-            # Używamy Dask DataFrame do ładowania danych z pliku Parquet
             dask_df = dd.read_parquet(file_path, engine='pyarrow', blocksize=self.chunksize)
-            logger.info("Dane zostały załadowane z użyciem Dask.")
+            logger.info("Data loaded using Dask.")
             return dask_df
         except Exception as e:
-            logger.error(f"Wystąpił błąd podczas ładowania danych z pliku {file_path}: {e}")
+            logger.error(f"Error loading data from {file_path}: {e}")
             raise e
+
+def load_resources(resource_manager):
+    """Loads resources needed for collocation analysis."""
+    try:
+        logger.info("Loading resources...")
+        resource_manager.load_data()
+        # Additional check if essential data has been loaded
+        if resource_manager.lemmas_to_idx is None or resource_manager.tokens_to_idx is None:
+            raise ValueError("Some resources were not loaded correctly.")
+        logger.info('Resources loaded successfully.')
+    except Exception as e:
+        logger.error(f"Failed to load resources: {e}")
+        raise
+
+# Initialize database connection and cursor
+def create_db_connection(db_path):
+    """
+    Establishes a database connection.
+
+    :param db_path: Path to the database file.
+    :return: A tuple of the connection and cursor objects.
+    """
+    conn = sqlite3.connect(db_path, check_same_thread=False)
+    # Enable Write-Ahead Logging for better concurrency
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA cache_size=-20000")  # 20MB page-cache
+    conn.execute("PRAGMA foreign_keys=ON")  # Enforce foreign-key constraints
+    cur = conn.cursor()
+    return conn, cur
+
+# Example usage
+if __name__ == "__main__":
+    resource_manager = ResourceManager()
+    load_resources(resource_manager)
